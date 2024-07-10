@@ -1,73 +1,59 @@
-"""
-User related functionality
-"""
+from src import db, bcrypt
 
-from src.models.base import Base
-
-
-class User(Base):
-    """User representation"""
-
-    email: str
-    first_name: str
-    last_name: str
-
-    def __init__(self, email: str, first_name: str, last_name: str, **kw):
-        """Dummy init"""
-        super().__init__(**kw)
-        self.email = email
-        self.first_name = first_name
-        self.last_name = last_name
+class User(db.Model):
+    id = db.Column(db.String(36), primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
+    updated_at = db.Column(db.DateTime, onupdate=db.func.current_timestamp())
 
     def __repr__(self) -> str:
-        """Dummy repr"""
         return f"<User {self.id} ({self.email})>"
 
+    def set_password(self, password):
+        self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+
+    def check_password(self, password):
+        return bcrypt.check_password_hash(self.password_hash, password)
+
     def to_dict(self) -> dict:
-        """Dictionary representation of the object"""
         return {
             "id": self.id,
             "email": self.email,
-            "first_name": self.first_name,
-            "last_name": self.last_name,
+            "is_admin": self.is_admin,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
 
     @staticmethod
-    def create(user: dict) -> "User":
-        """Create a new user"""
-        from src.persistence import repo
-
-        users: list["User"] = User.get_all()
-
-        for u in users:
-            if u.email == user["email"]:
-                raise ValueError("User already exists")
-
-        new_user = User(**user)
-
-        repo.save(new_user)
-
+    def create(user_data: dict) -> "User":
+        new_user = User(
+            email=user_data["email"],
+            is_admin=user_data.get("is_admin", False)
+        )
+        new_user.set_password(user_data["password"])
+        db.session.add(new_user)
+        db.session.commit()
         return new_user
 
     @staticmethod
-    def update(user_id: str, data: dict) -> "User | None":
-        """Update an existing user"""
-        from src.persistence import repo
+    def get(user_id: str) -> "User | None":
+        return User.query.get(user_id)
 
-        user: User | None = User.get(user_id)
-
-        if not user:
-            return None
-
+    def update(self, data: dict) -> None:
         if "email" in data:
-            user.email = data["email"]
-        if "first_name" in data:
-            user.first_name = data["first_name"]
-        if "last_name" in data:
-            user.last_name = data["last_name"]
+            self.email = data["email"]
+        if "password" in data:
+            self.set_password(data["password"])
+        if "is_admin" in data:
+            self.is_admin = data["is_admin"]
+        db.session.commit()
 
-        repo.update(user)
+    def delete(self) -> None:
+        db.session.delete(self)
+        db.session.commit()
 
-        return user
+    @staticmethod
+    def get_all() -> list["User"]:
+        return User.query.all()
